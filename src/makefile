@@ -1,9 +1,7 @@
 cc = gcc
 cflags = -Wall -g -O2 -I../../hiredis
 srcs = $(wildcard *.c)
-cobjs = $(srcs:.c=.o)
-objdir = .objs
-objs = $(addprefix $(objdir)/, $(cobjs))
+objs = $(srcs:.c=.o)
 
 $(objdir):
 	@mkdir -p $@
@@ -15,10 +13,10 @@ all: $(target)
 $(target): $(objs)
 	ar rc $@ $^
 
-$(objdir)/%.o: %.c | $(objdir)
+%.o: %.c
 	$(cc) $(cflags) -c $< -o $@
 
 .PHONY: clean
 clean:
-	rm -rf $(objdir)
+	rm -rf $(objs)
 	rm -f $(target)
