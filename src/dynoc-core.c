@@ -9,7 +9,6 @@
 static void
 reconnect_datacenter(struct datacenter *dc) {
 	struct rack *rack;
-	struct continuum *continuum;
 	struct redis_connection *redis_conn;
 	redisContext *c;
 
@@ -17,8 +16,9 @@ reconnect_datacenter(struct datacenter *dc) {
 		rack = &dc->rack[i];
 		for (int j = 0; j < rack->node_count; j++) {
 			redis_conn = &rack->redis_conn_pool[j];
-			continuum = &rack->continuum[j];
+
 			pthread_mutex_lock(&redis_conn->lock);
+
 			if (redis_conn->valid) {
 				redisReply *reply = redisCommand(redis_conn->ctx, "PING");
 				if (reply) {
@@ -26,11 +26,12 @@ reconnect_datacenter(struct datacenter *dc) {
 						dc->name, rack->name, redis_conn->endpoint.ip, redis_conn->endpoint.port);
 					freeReplyObject(reply);
 				} else {
-					redis_conn->valid = false;
+					redis_conn->valid = INVALID;
 					redisFree(redis_conn->ctx);
 					redis_conn->ctx = NULL;
 				}
 			}
+
 			if (!redis_conn->valid) {
 				c = redisConnect(redis_conn->endpoint.ip, redis_conn->endpoint.port);
 				if (c == NULL || c->err) {
@@ -40,7 +41,7 @@ reconnect_datacenter(struct datacenter *dc) {
 					printf("%s:%s:%s:%d reconnect failed!\n",
 						dc->name, rack->name, redis_conn->endpoint.ip, redis_conn->endpoint.port);
 				} else {
-					redis_conn->valid = true;
+					redis_conn->valid = VALID;
 					redis_conn->ctx = c;
 					printf("%s:%s:%s:%d reconnect ok!\n",
 						dc->name, rack->name, redis_conn->endpoint.ip, redis_conn->endpoint.port);
@@ -103,11 +104,12 @@ dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, int p
 	struct datacenter *dc;
 	struct rack *rack;
 	struct continuum *continuum;
+	int i;
 
 	dc = dc_type ? client->local_dc : client->remote_dc;
 	count = dc->rack_count;
 
-	for (int i = 0; i < count; i++) {
+	for (i = 0; i < count; i++) {
 		rack = &dc->rack[i];
 		index = rack->ncontinuum;
 		if (rack->name && strcmp(rack->name, rc_name) == 0) {
@@ -124,7 +126,7 @@ dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, int p
 				}
 				return -1;
 			} else {
-				rack->redis_conn_pool[index].valid = true;
+				rack->redis_conn_pool[index].valid = VALID;
 				rack->redis_conn_pool[index].ctx = c;
 			}
 			rack->ncontinuum++;
@@ -167,10 +169,12 @@ init_datacenter(struct dynoc_hiredis_client *client, size_t rack_count, const ch
 
 void
 destroy_datacenter(struct datacenter *dc) {
+	int i;
 	if (dc->name) {
 		free(dc->name);
 	}
-	for (int i = 0; i < dc->rack_count; i++) {
+
+	for (i = 0; i < dc->rack_count; i++) {
 		destroy_rack(&dc->rack[i]);
 	}
 	free(dc->rack);
@@ -181,10 +185,12 @@ init_rack(struct dynoc_hiredis_client *client, size_t node_count, const char *na
 	int count;
 	struct datacenter *dc;
 	struct rack *rack;
+	int i, j;
 
 	dc = dc_type ? client->local_dc : client->remote_dc;
 	count = dc->rack_count;
-	for (int i = 0; i < count; i++) {
+
+	for (i = 0; i < count; i++) {
 		rack = &dc->rack[i];
 		if (!rack->name) {
 			rack->name = strdup(name);
@@ -192,9 +198,9 @@ init_rack(struct dynoc_hiredis_client *client, size_t node_count, const char *na
 			rack->ncontinuum = 0;
 			rack->continuum = calloc(node_count, sizeof(struct continuum));
 			rack->redis_conn_pool = calloc(node_count, sizeof(struct redis_connection));
-			for (int j = 0; j < node_count; j++) {
+			for (j = 0; j < node_count; j++) {
 				pthread_mutex_init(&rack->redis_conn_pool[j].lock, NULL);
-				rack->redis_conn_pool[j].valid = false;
+				rack->redis_conn_pool[j].valid = INVALID;
 				rack->redis_conn_pool[j].ctx = NULL;
 			}
 			break;
@@ -205,19 +211,21 @@ init_rack(struct dynoc_hiredis_client *client, size_t node_count, const char *na
 
 void
 destroy_rack(struct rack *rack) {
+	int i;
+
 	if (rack->name) {
 		free(rack->name);
 	}
 
 	if (rack->continuum) {
-		for (int i = 0; i < rack->ncontinuum; i++) {
+		for (i = 0; i < rack->ncontinuum; i++) {
 			destroy_continuum(&rack->continuum[i]);
 		}
 		free(rack->continuum);
 	}
 
 	if (rack->redis_conn_pool) {
-		for (int i = 0; i < rack->node_count; i++) {
+		for (i = 0; i < rack->node_count; i++) {
 			if (rack->redis_conn_pool[i].ctx) {
 				pthread_mutex_destroy(&rack->redis_conn_pool[i].lock);
 				redisFree(rack->redis_conn_pool[i].ctx);
@@ -240,5 +248,12 @@ init_continuum(struct continuum *continuum, const char *token_str, uint32_t inde
 void
 destroy_continuum(struct continuum *continuum) {
 	free(continuum->token);
+}
+
+void
+reset_redis_connection(struct redis_connection *redis_conn) {
+	redis_conn->valid = INVALID;
+	redisFree(redis_conn->ctx);
+	redis_conn->ctx = NULL;
 }
 

@@ -1,13 +1,15 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <pthread.h>
 
 #include <hiredis.h>
 
 #include "dynoc-token.h"
+
+#define VALID   1
+#define INVALID 0
 
 typedef enum dc_type {
 	REMOTE_DC,
@@ -26,7 +28,7 @@ struct continuum {
 };
 
 struct redis_connection {
-	bool valid;
+	int valid;
 	pthread_mutex_t lock;
 	struct endpoint endpoint;
 	redisContext *ctx;
@@ -68,3 +70,4 @@ void destroy_rack(struct rack *rack);
 void init_continuum(struct continuum *continuum, const char *token_str, uint32_t index);
 void destroy_continuum(struct continuum *continuum);
 
+void reset_redis_connection(struct redis_connection *redis_conn);

@@ -33,7 +33,8 @@ int main(int argc, char **argv)
 		char value[32];
 		snprintf(key, 32, "keykey%d", i);
 		snprintf(value, 32, "vlaue%d", i);
-		set(&client, key, value);
+		int ret = set(&client, key, value);
+		printf("ret=%d\n", ret);
 	}
 
 	int n = 10;
@@ -54,7 +55,46 @@ int main(int argc, char **argv)
 		}
 	}
 
+	for (int i = 0; i < 100; i++) {
+		char key[32];
+		char field1[32];
+		char field2[32];
+		char val1[32];
+		char val2[32];
+		snprintf(key, 32, "hkey%d", i);
+		snprintf(field1, 32, "field1_%d", i);
+		snprintf(val1, 32, "val1_%d", i);
+		snprintf(field2, 32, "field2_%d", i);
+		snprintf(val2, 32, "val2_%d", i);
+
+		int ret = hset(&client, key, field1, val1);
+		int ret1 = hset(&client, key, field2, val2);
+		printf("ret=%d, ret1=%d\n", ret, ret1);
+	}
+
+	for (int i = 0; i < 100; i++) {
+		char key[32];
+		char field1[32];
+		char field2[32];
+		snprintf(key, 32, "hkey%d", i);
+		snprintf(field1, 32, "field1_%d", i);
+		snprintf(field2, 32, "field2_%d", i);
+
+		redisReply *r1 = hget(&client, key, field1);
+		redisReply *r2 = hget(&client, key, field2);
+
+		if (r1) {
+			printf("%s: %s\n", field1, r1->str);
+			freeReplyObject(r1);
+		}
+		if (r2) {
+			printf("%s: %s\n", field2, r2->str);
+			freeReplyObject(r2);
+		}
+	}
+
 	while (1) {
+		
 		sleep(6);
 	}
 

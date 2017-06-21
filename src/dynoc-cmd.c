@@ -43,11 +43,12 @@ select_connection(struct dynoc_hiredis_client *client, const char *key, struct t
 
 	dc = dc_type ? client->local_dc : client->remote_dc;
 
-	rack = &dc->rack[0];
-	assert(rack != NULL);
-	index = select_continuum(rack->continuum, rack->ncontinuum, token);
+	if (!dc) {
+		return NULL;
+	}
 
-	//printf("key=%s, hash=%u, index=%u\n", key, hash, index);
+	rack = &dc->rack[0];
+	index = select_continuum(rack->continuum, rack->ncontinuum, token);
 
 	return &rack->redis_conn_pool[index];
 }
@@ -61,6 +62,10 @@ set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
 	init_token(&token);
 	redis_conn = select_connection(client, key, &token, LOCAL_DC);
 
+	if (!redis_conn) {
+		return -1;
+	}
+
 	pthread_mutex_lock(&redis_conn->lock);
 
 	if (redis_conn->valid) {
@@ -73,73 +78,38 @@ set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
 			if (reply) {
 				freeReplyObject(reply);
 			}
-
-			redis_conn->valid = false;
-			redisFree(redis_conn->ctx);
-			redis_conn->ctx = NULL;
+			reset_redis_connection(redis_conn);
 			pthread_mutex_unlock(&redis_conn->lock);
-
-
-			// Try another rack on the local datacenter or on the remote datacenter
-			redis_conn = select_connection(client, key, &token, REMOTE_DC);
-			if (!redis_conn) {
-				return -1;
-			}
-
-			pthread_mutex_lock(&redis_conn->lock);
-
-			if (redis_conn->valid) {
-				reply = redisCommand(redis_conn->ctx, "SET %s %s", key, value);
-				if (reply && redis_conn->ctx->err == 0) {
-					freeReplyObject(reply);
-					pthread_mutex_unlock(&redis_conn->lock);
-					return 0;
-				} else {
-					if (reply) {
-						freeReplyObject(reply);
-					}
-
-					redis_conn->valid = false;
-					redisFree(redis_conn->ctx);
-					redis_conn->ctx = NULL;
-					pthread_mutex_unlock(&redis_conn->lock);
-					return -1;
-				}
-			} else {
-				return -1;
-			}
 		}
-	} else {
-		pthread_mutex_unlock(&redis_conn->lock);
-		redis_conn = select_connection(client, key, &token, REMOTE_DC);
+	}
 
-		if (!redis_conn) {
-			return -1;
-		}
+	pthread_mutex_unlock(&redis_conn->lock);
 
-		pthread_mutex_lock(&redis_conn->lock);
+	redis_conn = select_connection(client, key, &token, REMOTE_DC);
+	if (!redis_conn) {
+		return -1;
+	}
 
-		if (redis_conn->valid) {
-			reply = redisCommand(redis_conn->ctx, "SET %s %s", key, value);
-			if (reply && redis_conn->ctx->err == 0) {
-				freeReplyObject(reply);
-				pthread_mutex_unlock(&redis_conn->lock);
-				return 0;
-			} else {
-				if (reply) {
-					freeReplyObject(reply);
-				}
+	pthread_mutex_lock(&redis_conn->lock);
 
-				redis_conn->valid = false;
-				redisFree(redis_conn->ctx);
-				redis_conn->ctx = NULL;
-				pthread_mutex_unlock(&redis_conn->lock);
-				return -1;
-			}
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "SET %s %s", key, value);
+		if (reply && redis_conn->ctx->err == 0) {
+			freeReplyObject(reply);
+			pthread_mutex_unlock(&redis_conn->lock);
+			return 0;
 		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
 			return -1;
 		}
 	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+	return -1;
 }
 
 redisReply *
@@ -150,6 +120,10 @@ get(struct dynoc_hiredis_client *client, const char *key) {
 
 	init_token(&token);
 	redis_conn = select_connection(client, key, &token, LOCAL_DC);
+
+	if (!redis_conn) {
+		return NULL;
+	}
 
 	pthread_mutex_lock(&redis_conn->lock);
 
@@ -162,52 +136,153 @@ get(struct dynoc_hiredis_client *client, const char *key) {
 			if (reply) {
 				freeReplyObject(reply);
 			}
-
-			redis_conn->valid = false;
-			redisFree(redis_conn->ctx);
-			redis_conn->ctx = NULL;
+			reset_redis_connection(redis_conn);
 			pthread_mutex_unlock(&redis_conn->lock);
-
-			redis_conn = select_connection(client, key, &token, REMOTE_DC);
-			if (!redis_conn) {
-				return NULL;
-			}
-
-			pthread_mutex_lock(&redis_conn->lock);
-
-			if (redis_conn->valid) {
-				reply = redisCommand(redis_conn->ctx, "GET %s", key);
-				if (reply && redis_conn->ctx->err == 0) {
-					pthread_mutex_unlock(&redis_conn->lock);
-					return reply;
-				} else {
-					pthread_mutex_unlock(&redis_conn->lock);
-					return NULL;
-				}
-			}
 		}
-	} else {
-		pthread_mutex_unlock(&redis_conn->lock);
+	}
 
-		redis_conn = select_connection(client, key, &token, REMOTE_DC);
-		if (!redis_conn) {
+	pthread_mutex_unlock(&redis_conn->lock);
+
+	redis_conn = select_connection(client, key, &token, REMOTE_DC);
+	if (!redis_conn) {
+		return NULL;
+	}
+
+	pthread_mutex_lock(&redis_conn->lock);
+
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "GET %s", key);
+		if (reply && redis_conn->ctx->err == 0) {
+			pthread_mutex_unlock(&redis_conn->lock);
+			return reply;
+		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
 			return NULL;
 		}
-
-		pthread_mutex_lock(&redis_conn->lock);
-
-		if (redis_conn->valid) {
-			reply = redisCommand(redis_conn->ctx, "GET %s", key);
-			if (reply && redis_conn->ctx->err == 0) {
-				pthread_mutex_unlock(&redis_conn->lock);
-				return reply;
-			} else {
-				pthread_mutex_unlock(&redis_conn->lock);
-				return NULL;
-			}
-		}
-
 	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+
 	return reply;
+}
+
+int
+hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value) {
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+
+	init_token(&token);
+	redis_conn = select_connection(client, key, &token, LOCAL_DC);
+
+	if (!redis_conn) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&redis_conn->lock);
+
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "HSET %s %s %s", key, field, value);
+		if (reply && redis_conn->ctx->err == 0) {
+			freeReplyObject(reply);
+			pthread_mutex_unlock(&redis_conn->lock);
+			return 0;
+		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+
+	redis_conn = select_connection(client, key, &token, REMOTE_DC);
+	if (!redis_conn) {
+		return -1;
+	}
+
+	pthread_mutex_lock(&redis_conn->lock);
+
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "HSET %s %s %s", key, field, value);
+		if (reply && redis_conn->ctx->err == 0) {
+			freeReplyObject(reply);
+			pthread_mutex_unlock(&redis_conn->lock);
+			return 0;
+		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
+			return -1;
+		}
+	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+
+	return -1;
+}
+
+redisReply *
+hget(struct dynoc_hiredis_client *client, const char *key, const char *field) {
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+
+	init_token(&token);
+	redis_conn = select_connection(client, key, &token, LOCAL_DC);
+
+	if (!redis_conn) {
+		return NULL;
+	}
+
+	pthread_mutex_lock(&redis_conn->lock);
+
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "HGET %s %s", key, field);
+		if (reply && redis_conn->ctx->err == 0) {
+			pthread_mutex_unlock(&redis_conn->lock);
+			return reply;
+		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+
+	redis_conn = select_connection(client, key, &token, REMOTE_DC);
+	if (!redis_conn) {
+		return NULL;
+	}
+
+	pthread_mutex_lock(&redis_conn->lock);
+
+	if (redis_conn->valid) {
+		reply = redisCommand(redis_conn->ctx, "HGET %s %s", key, field);
+		if (reply && redis_conn->ctx->err == 0) {
+			pthread_mutex_unlock(&redis_conn->lock);
+			return reply;
+		} else {
+			if (reply) {
+				freeReplyObject(reply);
+			}
+			reset_redis_connection(redis_conn);
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	pthread_mutex_unlock(&redis_conn->lock);
+	return NULL;
 }
 
