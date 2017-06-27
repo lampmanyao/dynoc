@@ -1,15 +1,18 @@
 CC = gcc
 CFLAGS = -Wall -O2 -g
-TARGET = example
-INC = -I../src -I../../hiredis
-LIB = -lpthread ../src/libdynoc.a ../../hiredis/libhiredis.a
+TARGET = example multi-thread-example
+INC = -I../src -I../hiredis
+LIB = ../src/libdynoc.a ../hiredis/libhiredis.a -lpthread 
 
 srcs = $(wildcard *.c)
 objs = $(srcs:.c=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(objs)
+example: example.o
+	$(CC) $(CFLAGS) $(INC) -o $@ $< $(LIB)
+
+multi-thread-example: multi-thread-example.o
 	$(CC) $(CFLAGS) $(INC) -o $@ $< $(LIB)
 
 %.o: %.c

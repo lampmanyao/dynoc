@@ -12,21 +12,27 @@ int main(int argc, char **argv)
 	init_datacenter(&client, 1, "shenzhen-datacenter", REMOTE_DC);
 
 	init_rack(&client, 3, "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8305, "1431655765", "rack1", LOCAL_DC);
 	dynoc_client_add_node(&client, "10.211.55.8", 8306, "2863311530", "rack1", LOCAL_DC);
+	dynoc_client_add_node(&client, "10.211.55.8", 8305, "1431655765", "rack1", LOCAL_DC);
 	dynoc_client_add_node(&client, "10.211.55.8", 8307, "4294967295", "rack1", LOCAL_DC);
 
 	init_rack(&client, 3, "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8204, "1431655765", "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8205, "2863311530", "rack2", LOCAL_DC);
 	dynoc_client_add_node(&client, "10.211.55.8", 8207, "4294967295", "rack2", LOCAL_DC);
+	dynoc_client_add_node(&client, "10.211.55.8", 8205, "2863311530", "rack2", LOCAL_DC);
+	dynoc_client_add_node(&client, "10.211.55.8", 8204, "1431655765", "rack2", LOCAL_DC);
 
 	init_rack(&client, 3, "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8305, "1431655765", "rack1", REMOTE_DC);
 	dynoc_client_add_node(&client, "10.211.55.17", 8306, "2863311530", "rack1", REMOTE_DC);
 	dynoc_client_add_node(&client, "10.211.55.17", 8307, "4294967295", "rack1", REMOTE_DC);
+	dynoc_client_add_node(&client, "10.211.55.17", 8305, "1431655765", "rack1", REMOTE_DC);
 
 	dynoc_client_start(&client);
+
+	int n = 10;
+	while (n--) {
+		printf("%d\n", n);
+		sleep(1);
+	}
 
 	for (int i = 0; i < 10; i++) {
 		char key[32];
@@ -34,10 +40,10 @@ int main(int argc, char **argv)
 		snprintf(key, 32, "keykey%d", i);
 		snprintf(value, 32, "vlaue%d", i);
 		int ret = set(&client, key, value);
-		printf("ret=%d\n", ret);
+		printf("SET %s: ret=%d\n", key, ret);
 	}
 
-	int n = 10;
+	n = 10;
 	while (n--) {
 		printf("%d\n", n);
 		sleep(1);
@@ -69,7 +75,7 @@ int main(int argc, char **argv)
 
 		int ret = hset(&client, key, field1, val1);
 		int ret1 = hset(&client, key, field2, val2);
-		printf("ret=%d, ret1=%d\n", ret, ret1);
+		printf("HSET %s: ret=%d, ret1=%d\n", key, ret, ret1);
 	}
 
 	for (int i = 0; i < 100; i++) {
@@ -84,11 +90,11 @@ int main(int argc, char **argv)
 		redisReply *r2 = hget(&client, key, field2);
 
 		if (r1) {
-			printf("%s: %s\n", field1, r1->str);
+			printf("HGET %s: %s\n", field1, r1->str);
 			freeReplyObject(r1);
 		}
 		if (r2) {
-			printf("%s: %s\n", field2, r2->str);
+			printf("HGET %s: %s\n", field2, r2->str);
 			freeReplyObject(r2);
 		}
 	}

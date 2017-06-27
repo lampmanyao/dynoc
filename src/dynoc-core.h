@@ -17,20 +17,20 @@ typedef enum dc_type {
 } dc_type_t;
 
 struct endpoint {
-	char ip[16];
+	char *host;
 	int port;
 };
 
 struct continuum {
 	uint32_t index;
 	uint32_t value;
+	struct endpoint endpoint;
 	struct token *token;
 };
 
 struct redis_connection {
-	int valid;
+	uint32_t valid;
 	pthread_mutex_t lock;
-	struct endpoint endpoint;
 	redisContext *ctx;
 };
 
@@ -45,7 +45,7 @@ struct rack {
 struct datacenter {
 	char *name;
 	struct rack *rack;
-	int rack_count;
+	uint32_t rack_count;
 	dc_type_t dc_type;
 };
 
@@ -61,13 +61,14 @@ int dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, i
 int dynoc_client_start(struct dynoc_hiredis_client *client);
 void dynoc_client_destroy(struct dynoc_hiredis_client *client);
 
-int init_datacenter(struct dynoc_hiredis_client *client, size_t rack_count, const char *name, dc_type_t dc_type);
+int init_datacenter(struct dynoc_hiredis_client *client, uint32_t rack_count, const char *name, dc_type_t dc_type);
 void destroy_datacenter(struct datacenter *dc);
 
-int init_rack(struct dynoc_hiredis_client *client, size_t node_count, const char *name, dc_type_t dc_type);
+int init_rack(struct dynoc_hiredis_client *client, uint32_t node_count, const char *name, dc_type_t dc_type);
 void destroy_rack(struct rack *rack);
 
-void init_continuum(struct continuum *continuum, const char *token_str, uint32_t index);
+void init_continuum(struct continuum *continuum, const char *host, int port,  const char *token_str, uint32_t index);
 void destroy_continuum(struct continuum *continuum);
 
 void reset_redis_connection(struct redis_connection *redis_conn);
+

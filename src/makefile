@@ -1,5 +1,5 @@
 cc = gcc
-cflags = -Wall -g -O2 -I../../hiredis
+cflags = -Wall -DDEBUG -g -O2 -I../hiredis
 srcs = $(wildcard *.c)
 objs = $(srcs:.c=.o)
 
