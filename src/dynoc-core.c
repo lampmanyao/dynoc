@@ -1,11 +1,43 @@
+/*
+ * Dynoc is a minimalistic C client library for the dynomite.
+ * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ */
+
+/*
+ * Dynomite - A thin, distributed replication layer for multi non-distributed storages.
+ * Copyright (C) 2014 Netflix, Inc.
+ */
+
+/*
+ * twemproxy - A fast and lightweight proxy for memcached protocol.
+ * Copyright (C) 2011 Twitter, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "dynoc-core.h"
-#include "hash-murmur.h"
 #include "dynoc-debug.h"
+#include "dynoc-cmd.h"
 
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+
+static void destroy_datacenter(struct datacenter *);
+static void destroy_rack(struct rack *);
+static void init_continuum(struct continuum *, const char *host, int port, const char *pass, const char *token_str, uint32_t idx);
+static void destroy_continuum(struct continuum *);
 
 static void
 reconnect_datacenter(struct datacenter *dc) {
@@ -14,6 +46,7 @@ reconnect_datacenter(struct datacenter *dc) {
 	struct continuum *continuum;
 	redisContext *ctx;
 	uint32_t i, j;
+	int ret = INVALID;
 
 	for (i = 0; i < dc->rack_count; i++) {
 		rack = &dc->rack[i];
@@ -36,7 +69,10 @@ reconnect_datacenter(struct datacenter *dc) {
 			}
 
 			if (!redis_conn->valid) {
-				ctx = redisConnect(continuum->endpoint.host, continuum->endpoint.port);
+				struct timeval tv;
+				tv.tv_sec = 3;
+				tv.tv_usec = 0;
+				ctx = redisConnectWithTimeout(continuum->endpoint.host, continuum->endpoint.port, tv);
 				if (ctx == NULL || ctx->err) {
 					if (ctx) {
 						redisFree(ctx);
@@ -44,10 +80,23 @@ reconnect_datacenter(struct datacenter *dc) {
 					log_debug("%s:%s:%s:%d reconnect failed!",
 						dc->name, rack->name, continuum->endpoint.host, continuum->endpoint.port);
 				} else {
-					redis_conn->valid = VALID;
-					redis_conn->ctx = ctx;
 					log_debug("%s:%s:%s:%d reconnect ok!",
 						dc->name, rack->name, continuum->endpoint.host, continuum->endpoint.port);
+					if (continuum->endpoint.pass) {
+						redisReply *reply = redisCommand(ctx, "AUTH %s", continuum->endpoint.pass);
+						if (reply && reply->type != REDIS_REPLY_ERROR && ctx->err == 0) {
+							ret = VALID;
+							log_debug("auth ok!");
+						} else {
+							ret = INVALID;
+							if (reply) {
+								freeReplyObject(reply);
+							}
+							log_debug("auth failed!");
+						}
+					}
+					redis_conn->valid = ret;
+					redis_conn->ctx = ctx;
 				}
 			}
 			pthread_mutex_unlock(&redis_conn->lock);
@@ -78,9 +127,21 @@ reconnect_thread(void *arg) {
 }
 
 int
-dynoc_client_init(struct dynoc_hiredis_client *client) {
+dynoc_client_init(struct dynoc_hiredis_client *client, const char *hash) {
 	client->local_dc = NULL;
 	client->remote_dc = NULL;
+
+	if (!hash) {
+		client->hash_type = DEFAULT_HASH;
+	} else {
+		client->hash_type = get_hash_type(hash);
+	}
+
+	if (client->hash_type == HASH_INVALID) {
+		return -1;
+	}
+
+	client->hash_func = get_hash_func(client->hash_type);
 	return 0;
 }
 
@@ -101,8 +162,9 @@ dynoc_client_destroy(struct dynoc_hiredis_client *client) {
 }
 
 int
-dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, int port,
-                      const char *token_str, const char *rc_name, dc_type_t dc_type) {
+dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip,
+                      int port, const char *pass, const char *token_str,
+                      const char *rc_name, dc_type_t dc_type) {
 	struct datacenter *dc;
 	struct rack *rack;
 	struct continuum *continuum;
@@ -116,7 +178,7 @@ dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, int p
 		index = rack->ncontinuum;
 		if (rack->name && strcmp(rack->name, rc_name) == 0) {
 			continuum = &rack->continuum[index];
-			init_continuum(continuum, ip, port, token_str, index);
+			init_continuum(continuum, ip, port, pass, token_str, index);
 			rack->ncontinuum++;
 		}
 	}
@@ -132,21 +194,40 @@ cmp(const void *t1, const void *t2) {
 static void
 init_redis_connection_pool(struct rack *rack) {
 	uint32_t i;
+	int ret = INVALID;
+
 	qsort(rack->continuum, rack->ncontinuum, sizeof(*rack->continuum), cmp);
 	for (i = 0; i < rack->ncontinuum; i++) {
-		struct continuum *c = &rack->continuum[i];
+		struct continuum *continuum = &rack->continuum[i];
 		struct redis_connection *redis_conn = &rack->redis_conn_pool[i];
-		c->index = i;
-		redisContext *ctx = redisConnect(c->endpoint.host, c->endpoint.port);
+		continuum->index = i;
+		struct timeval tv;
+		tv.tv_sec = 3;
+		tv.tv_usec = 0;
+		redisContext *ctx = redisConnectWithTimeout(continuum->endpoint.host, continuum->endpoint.port, tv);
 		if (ctx == NULL || ctx->err) {
 			if (ctx) {
 				redisFree(ctx);
 			}
-			log_debug("connect to %s:%d failed!", c->endpoint.host, c->endpoint.port);
+			log_debug("connect to %s:%d failed!", continuum->endpoint.host, continuum->endpoint.port);
 		} else {
-			redis_conn->valid = VALID;
+			log_debug("connect to %s:%d ok!", continuum->endpoint.host, continuum->endpoint.port);
+			if (continuum->endpoint.pass) {
+				redisReply *reply = redisCommand(ctx, "AUTH %s", continuum->endpoint.pass);
+				if (reply && reply->type != REDIS_REPLY_ERROR && ctx->err == 0) {
+					ret = VALID;
+					log_debug("auth ok!");
+				} else {
+					ret = INVALID;
+					if (reply) {
+						freeReplyObject(reply);
+					}
+					log_debug("auth failed!");
+				}
+			}
+
+			redis_conn->valid = ret;
 			redis_conn->ctx = ctx;
-			log_debug("connect to %s:%d ok!", c->endpoint.host, c->endpoint.port);
 		}
 	}
 }
@@ -161,7 +242,6 @@ dynoc_client_start(struct dynoc_hiredis_client *client) {
 		rc_count = dc->rack_count;
 		for (i = 0; i < rc_count; i++) {
 			init_redis_connection_pool(&dc->rack[i]);
-			
 		}
 	}
 
@@ -203,7 +283,7 @@ init_datacenter(struct dynoc_hiredis_client *client, uint32_t rack_count, const 
 	return 0;
 }
 
-void
+static void
 destroy_datacenter(struct datacenter *dc) {
 	if (dc->name) {
 		free(dc->name);
@@ -245,7 +325,7 @@ init_rack(struct dynoc_hiredis_client *client, uint32_t node_count, const char *
 	return 0;
 }
 
-void
+static void
 destroy_rack(struct rack *rack) {
 	uint32_t i;
 
@@ -271,8 +351,8 @@ destroy_rack(struct rack *rack) {
 	}
 }
 
-void
-init_continuum(struct continuum *continuum, const char *ip, int port, const char *token_str, uint32_t index) {
+static void
+init_continuum(struct continuum *continuum, const char *ip, int port, const char *pass, const char *token_str, uint32_t index) {
 	struct token *token = malloc(sizeof(struct token));
 	init_token(token);
 	size_token(token, 1);
@@ -281,18 +361,19 @@ init_continuum(struct continuum *continuum, const char *ip, int port, const char
 	continuum->token = token;
 	continuum->endpoint.host = strdup(ip);
 	continuum->endpoint.port = port;
+	if (pass) {
+		continuum->endpoint.pass = strdup(pass);
+	} else {
+		continuum->endpoint.pass = NULL;
+	}
 } 
 
-void
+static void
 destroy_continuum(struct continuum *continuum) {
 	free(continuum->endpoint.host);
+	if (continuum->endpoint.pass) {
+		free(continuum->endpoint.pass);
+	}
 	free(continuum->token);
-}
-
-void
-reset_redis_connection(struct redis_connection *redis_conn) {
-	redis_conn->valid = INVALID;
-	redisFree(redis_conn->ctx);
-	redis_conn->ctx = NULL;
 }
 

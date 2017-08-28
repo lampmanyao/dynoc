@@ -5,26 +5,15 @@
 
 int main(int argc, char **argv)
 {
+	int i;
 	struct dynoc_hiredis_client client;
-	dynoc_client_init(&client);
+	dynoc_client_init(&client, "murmur");
 
-	init_datacenter(&client, 2, "wuxi-datacenter", LOCAL_DC);
-	init_datacenter(&client, 1, "shenzhen-datacenter", REMOTE_DC);
+	init_datacenter(&client, 1, "wuxi-datacenter", LOCAL_DC);
 
-	init_rack(&client, 3, "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8306, "2863311530", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8305, "1431655765", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8307, "4294967295", "rack1", LOCAL_DC);
-
-	init_rack(&client, 3, "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8207, "4294967295", "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8205, "2863311530", "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8204, "1431655765", "rack2", LOCAL_DC);
-
-	init_rack(&client, 3, "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8306, "2863311530", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8307, "4294967295", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8305, "1431655765", "rack1", REMOTE_DC);
+	init_rack(&client, 2, "rack1", LOCAL_DC);
+	dynoc_client_add_node(&client, "10.211.55.8", 8301, "hello", "1431655765", "rack1", LOCAL_DC);
+	dynoc_client_add_node(&client, "10.211.55.8", 8302, "hello", "3434343432", "rack1", LOCAL_DC);
 
 	dynoc_client_start(&client);
 
@@ -34,12 +23,12 @@ int main(int argc, char **argv)
 		sleep(1);
 	}
 
-	for (int i = 0; i < 10; i++) {
+	for (i = 0; i < 10; i++) {
 		char key[32];
 		char value[32];
 		snprintf(key, 32, "keykey%d", i);
 		snprintf(value, 32, "vlaue%d", i);
-		int ret = set(&client, key, value);
+		int ret = dynoc_set(&client, key, value);
 		printf("SET %s: ret=%d\n", key, ret);
 	}
 
@@ -49,10 +38,10 @@ int main(int argc, char **argv)
 		sleep(1);
 	}
 
-	for (int i = 0; i < 10; i++) {
+	for (i = 0; i < 10; i++) {
 		char key[32];
 		snprintf(key, 32, "keykey%d", i);
-		redisReply *r = get(&client, key);
+		redisReply *r = dynoc_get(&client, key);
 		if (r) {
 			printf("GET %s: %s\n\n", key, r->str);
 			freeReplyObject(r);
@@ -61,7 +50,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	for (int i = 0; i < 100; i++) {
+	for (i = 0; i < 100; i++) {
 		char key[32];
 		char field1[32];
 		char field2[32];
@@ -73,12 +62,12 @@ int main(int argc, char **argv)
 		snprintf(field2, 32, "field2_%d", i);
 		snprintf(val2, 32, "val2_%d", i);
 
-		int ret = hset(&client, key, field1, val1);
-		int ret1 = hset(&client, key, field2, val2);
+		int ret = dynoc_hset(&client, key, field1, val1);
+		int ret1 = dynoc_hset(&client, key, field2, val2);
 		printf("HSET %s: ret=%d, ret1=%d\n", key, ret, ret1);
 	}
 
-	for (int i = 0; i < 100; i++) {
+	for (i = 0; i < 100; i++) {
 		char key[32];
 		char field1[32];
 		char field2[32];
@@ -86,8 +75,8 @@ int main(int argc, char **argv)
 		snprintf(field1, 32, "field1_%d", i);
 		snprintf(field2, 32, "field2_%d", i);
 
-		redisReply *r1 = hget(&client, key, field1);
-		redisReply *r2 = hget(&client, key, field2);
+		redisReply *r1 = dynoc_hget(&client, key, field1);
+		redisReply *r2 = dynoc_hget(&client, key, field2);
 
 		if (r1) {
 			printf("HGET %s: %s\n", field1, r1->str);

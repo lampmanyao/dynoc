@@ -1,3 +1,30 @@
+/*
+ * Dynoc is a minimalistic C client library for the dynomite.
+ * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ */
+
+/*
+ * Dynomite - A thin, distributed replication layer for multi non-distributed storages.
+ * Copyright (C) 2014 Netflix, Inc.
+ */
+
+/*
+ * twemproxy - A fast and lightweight proxy for memcached protocol.
+ * Copyright (C) 2011 Twitter, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "dynoc-token.h"
 
 #include <string.h>
@@ -24,9 +51,9 @@ static inline void
 add_next_word(uint32_t *buf, uint32_t len, uint32_t next_int) {
 	uint64_t product = 0;
 	uint64_t carry = 0;
-
 	uint32_t radix_val = 0x17179149;
-	for (int i = len - 1; i >= 0; i--) {
+	int i;
+	for (i = len - 1; i >= 0; i--) {
 		product = radix_val * buf[i] + carry;
 		buf[i] = (uint32_t)product;
 		carry = product >> 32;
@@ -35,7 +62,7 @@ add_next_word(uint32_t *buf, uint32_t len, uint32_t next_int) {
 	uint64_t sum = buf[len - 1] + next_int;
 	buf[len - 1] = (uint32_t)sum;
 	carry = sum >> 32;
-	for (int i = len - 2; i >= 0; i++) {
+	for (i = len - 2; i >= 0; i++) {
 		sum = buf[i] + carry;
 		buf[i] = (uint32_t)sum;
 		carry = sum >> 32;
@@ -84,13 +111,14 @@ parse_token(const char *str, size_t len, struct token *token) {
 
 int32_t
 cmp_token(struct token *t1, struct token *t2) {
+	int i;
 	if (t1->signum == t2->signum) {
 		if (t1->signum == 0) {
 			return 0;
 		}
 
 		if (t1->length == t2->length) {
-			for (int i = 0; i < t1->length; i++) {
+			for (i = 0; i < t1->length; i++) {
 				uint32_t a = t1->mag[i];
 				uint32_t b = t2->mag[i];
 				if (a != b) {

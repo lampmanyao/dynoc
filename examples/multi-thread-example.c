@@ -1,77 +1,90 @@
 #include "dynoc-core.h"
 #include "dynoc-cmd.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/syscall.h>
 
-void *
-thread1(void *arg) {
-	struct dynoc_hiredis_client *client = arg;
-	int i;
+struct dynoc_hiredis_client client;
+int nrequest;
 
-	for (i = 0; i < 100; i++) {
-		char key[32];
-		char value[32];
-		snprintf(key, 32, "thread1%d", i);
-		snprintf(value, 32, "vlaue%d", i);
-		int ret = set(client, key, value);
-		printf("thread1: SET %s: ret=%d\n", key, ret);
-	}
-
-	return NULL;
+inline unsigned long
+gettimeus() {
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
 
 void *
-thread2(void *arg) {
-	struct dynoc_hiredis_client *client = arg;
+thread(void *arg) {
+	struct dynoc_hiredis_client *local_client = &client;
 	int i;
 
-	for (i = 0; i < 100; i++) {
+#ifdef __linux__
+	int tid = syscall(__NR_gettid);
+#else
+	int tid = syscall(SYS_thread_selfid);
+#endif
+	unsigned long begin = gettimeus();
+
+	for (i = 0; i < nrequest; i++) {
 		char key[32];
 		char value[32];
-		snprintf(key, 32, "thread2%d", i);
+		snprintf(key, 32, "thread%d%d", tid, i);
 		snprintf(value, 32, "vlaue%d", i);
-		int ret = set(client, key, value);
-		printf("thread2: SET %s: ret=%d\n", key, ret);
+		int ret = dynoc_set(local_client, key, value);
+		if (ret < 0) {
+			printf("thread1: SET %s: ret=%d\n", key, ret);
+		}
 	}
-
+	unsigned long end = gettimeus();
+	printf("thread %d exit. %d requests need %lu us.\n", tid, nrequest, end - begin);
 	return NULL;
 }
 
 int main(int argc, char **argv)
 {
-	struct dynoc_hiredis_client client;
-	dynoc_client_init(&client);
+	if (argc != 3) {
+		printf("%s nthread nrequest\n", argv[0]);
+		return -1;
+	}
 
-	init_datacenter(&client, 2, "wuxi-datacenter", LOCAL_DC);
-	init_datacenter(&client, 1, "shenzhen-datacenter", REMOTE_DC);
+	int nthread = atoi(argv[1]);
+	nrequest = atoi(argv[2]);
+
+	dynoc_client_init(&client, "murmur");
+	init_datacenter(&client, 1, "local_dc", LOCAL_DC);
+	init_datacenter(&client, 2, "remote_dc", REMOTE_DC);
 
 	init_rack(&client, 3, "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8306, "2863311530", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8305, "1431655765", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8307, "4294967295", "rack1", LOCAL_DC);
-
-	init_rack(&client, 3, "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8207, "4294967295", "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8205, "2863311530", "rack2", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8204, "1431655765", "rack2", LOCAL_DC);
+	dynoc_client_add_node(&client, "113.107.149.188", 6501, "1024xxx!yy", "1431655765", "rack1", LOCAL_DC);
+	dynoc_client_add_node(&client, "113.107.149.188", 6502, "1024xxx!yy", "2863311530", "rack1", LOCAL_DC);
+	dynoc_client_add_node(&client, "113.107.149.188", 6503, "1024xxx!yy", "4294967295", "rack1", LOCAL_DC);
 
 	init_rack(&client, 3, "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8306, "2863311530", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8307, "4294967295", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "10.211.55.17", 8305, "1431655765", "rack1", REMOTE_DC);
+	dynoc_client_add_node(&client, "61.145.54.225", 6501, "1024xxx!yy", "1431655765", "rack1", REMOTE_DC);
+	dynoc_client_add_node(&client, "61.145.54.225", 6502, "1024xxx!yy", "2863311530", "rack1", REMOTE_DC);
+	dynoc_client_add_node(&client, "61.145.54.225", 6503, "1024xxx!yy", "4294967295", "rack1", REMOTE_DC);
+                                                              
+	init_rack(&client, 3, "rack2", REMOTE_DC);            
+	dynoc_client_add_node(&client, "58.215.169.12", 6501, "1024xxx!yy", "1431655765", "rack2", REMOTE_DC);
+	dynoc_client_add_node(&client, "58.215.169.12", 6502, "1024xxx!yy", "2863311530", "rack2", REMOTE_DC);
+	dynoc_client_add_node(&client, "58.215.169.12", 6503, "1024xxx!yy", "4294967295", "rack2", REMOTE_DC);
 
 	dynoc_client_start(&client);
 
-	pthread_t tids[2];
-	pthread_create(&tids[0], NULL, thread1, &client);
-	pthread_create(&tids[1], NULL, thread2, &client);
-
+	pthread_t* tids = malloc(nthread * sizeof(pthread_t));
 	int i;
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < nthread; i++) {
+		pthread_create(&tids[i], NULL, thread, NULL);
+	}
+
+	for (i = 0; i < nthread; i++) {
 		pthread_join(tids[i], NULL);
 	}
 
+	free(tids);
 	dynoc_client_destroy(&client);
 
 	return 0;

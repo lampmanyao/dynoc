@@ -25,28 +25,48 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "dynoc-hashkit.h"
 
-#include <hiredis.h>
+#include <string.h>
 
-#include "dynoc-core.h"
-#include "dynoc-token.h"
+#define DEFINE_ACTION(_hash, _name) #_name,
+const char* hash_strings[] = {
+	HASH_CODEC(DEFINE_ACTION)
+	NULL
+};
+#undef DEFINE_ACTION
 
-#ifdef __cplusplus
-extern "C"{
-#endif 
+#define DEFINE_ACTION(_hash, _name) int hash_##_name(const char *key, size_t length);
+HASH_CODEC(DEFINE_ACTION) \
 
-int dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *value);
-int dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *value, int seconds);
-int dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *value, int milliseconds);
-redisReply *dynoc_get(struct dynoc_hiredis_client *client, const char *key);
-int dynoc_del(struct dynoc_hiredis_client *client, const char *key);
+#undef DEFINE_ACTION
 
+#define DEFINE_ACTION(_hash, _name) hash_##_name,
+static hash_func_t hash_algos[] = {
+	HASH_CODEC(DEFINE_ACTION)
+	NULL
+};
+#undef DEFINE_ACTION
 
-int dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value);
-redisReply *dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *field);
-
-#ifdef __cplusplus
+hash_func_t
+get_hash_func(hash_type_t hash_type) {
+	if ((hash_type >= 0) && (hash_type < HASH_INVALID)) {
+		return hash_algos[hash_type];
+	}
+	return NULL;
 }
-#endif
+
+hash_type_t
+get_hash_type(const char *hash_name) {
+	hash_type_t i = HASH_ONE_AT_A_TIME;
+	for (; i < HASH_INVALID; i++) {
+		if (strcmp(hash_strings[i], hash_name) != 0) {
+			continue;
+		}
+
+		return i;
+	}
+
+	return HASH_INVALID;
+}
 

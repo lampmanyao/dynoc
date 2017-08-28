@@ -1,5 +1,5 @@
 cc = gcc
-cflags = -Wall -DDEBUG -g -O2 -I../hiredis
+cflags = -Wall -O2 -I../hiredis
 srcs = $(wildcard *.c)
 objs = $(srcs:.c=.o)
 
@@ -9,6 +9,9 @@ $(objdir):
 target = libdynoc.a
 
 all: $(target)
+
+debug: cflags += -DDEBUG -g
+debug: $(target)
 
 $(target): $(objs)
 	ar rc $@ $^

@@ -30,15 +30,30 @@
 #include <stdint.h>
 #include <stddef.h>
 
-struct token {
-	uint32_t signum;
-	uint32_t length;
-	uint32_t mag[4];
-};
+typedef int (*hash_func_t)(const char *, size_t);
 
-void init_token(struct token *token);
-void parse_token(const char *str, size_t len, struct token *token);
-int32_t cmp_token(struct token *t1, struct token *t2);
-void set_int_token(struct token *token, uint32_t val);
-void size_token(struct token *token, uint32_t token_len);
+#define HASH_CODEC(ACTION)                        \
+	ACTION(HASH_ONE_AT_A_TIME, one_at_a_time) \
+	ACTION(HASH_MD5, md5)                     \
+	ACTION(HASH_CRC16, crc16)                 \
+	ACTION(HASH_CRC32, crc32)                 \
+	ACTION(HASH_CRC32A, crc32a)               \
+	ACTION(HASH_FNV1_64, fnv1_64)             \
+	ACTION(HASH_FNV1A_64, fnv1a_64)           \
+	ACTION(HASH_FNV1_32, fnv1_32)             \
+	ACTION(HASH_FNV1A_32, fnv1a_32)           \
+	ACTION(HASH_HSIEH, hsieh)                 \
+	ACTION(HASH_MURMUR, murmur)               \
+	ACTION(HASH_JENKINS, jenkins)             \
+	ACTION(HASH_MURMUR3, murmur3)             \
+
+#define DEFINE_ACTION(_hash, _name) _hash,
+typedef enum hash_type {
+	HASH_CODEC(DEFINE_ACTION)
+	HASH_INVALID
+} hash_type_t;
+#undef DEFINE_ACTION
+
+hash_func_t get_hash_func(hash_type_t hash_type);
+hash_type_t get_hash_type(const char *hash_name);
 

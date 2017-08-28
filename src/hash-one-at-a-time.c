@@ -25,28 +25,23 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "dynoc-hashkit.h"
 
-#include <hiredis.h>
+uint32_t
+hash_one_at_a_time(const char *key, size_t key_length) {
+    const char *ptr = key;
+    uint32_t value = 0;
 
-#include "dynoc-core.h"
-#include "dynoc-token.h"
+    while (key_length--) {
+        uint32_t val = (uint32_t) *ptr++;
+        value += val;
+        value += (value << 10);
+        value ^= (value >> 6);
+    }
+    value += (value << 3);
+    value ^= (value >> 11);
+    value += (value << 15);
 
-#ifdef __cplusplus
-extern "C"{
-#endif 
-
-int dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *value);
-int dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *value, int seconds);
-int dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *value, int milliseconds);
-redisReply *dynoc_get(struct dynoc_hiredis_client *client, const char *key);
-int dynoc_del(struct dynoc_hiredis_client *client, const char *key);
-
-
-int dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value);
-redisReply *dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *field);
-
-#ifdef __cplusplus
+    return value;
 }
-#endif
 

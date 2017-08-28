@@ -25,28 +25,12 @@
  * limitations under the License.
  */
 
-#pragma once
+#include "dynoc-hashkit.h"
 
-#include <hiredis.h>
+#define MURMUR3_SEED 0xc0a1e5ce
 
-#include "dynoc-core.h"
-#include "dynoc-token.h"
-
-#ifdef __cplusplus
-extern "C"{
-#endif 
-
-int dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *value);
-int dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *value, int seconds);
-int dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *value, int milliseconds);
-redisReply *dynoc_get(struct dynoc_hiredis_client *client, const char *key);
-int dynoc_del(struct dynoc_hiredis_client *client, const char *key);
-
-
-int dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value);
-redisReply *dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *field);
-
-#ifdef __cplusplus
+uint32_t
+hash_murmur3(const char *key, size_t length) {
+	return 0;
 }
-#endif
 

@@ -1,8 +1,43 @@
+/*
+ * Dynoc is a minimalistic C client library for the dynomite.
+ * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ */
+
+/*
+ * Dynomite - A thin, distributed replication layer for multi non-distributed storages.
+ * Copyright (C) 2014 Netflix, Inc.
+ */
+
+/*
+ * twemproxy - A fast and lightweight proxy for memcached protocol.
+ * Copyright (C) 2011 Twitter, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "dynoc-cmd.h"
 #include "dynoc-debug.h"
 
+#include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+
+static void
+reset_redis_connection(struct redis_connection *redis_conn) {
+	redis_conn->valid = INVALID;
+	redisFree(redis_conn->ctx);
+	redis_conn->ctx = NULL;
+}
 
 static uint32_t
 select_continuum(struct continuum *continuum, uint32_t ncontinuum, struct token *token) {
@@ -31,13 +66,14 @@ select_continuum(struct continuum *continuum, uint32_t ncontinuum, struct token 
 }
 
 static struct redis_connection*
-select_connection(struct dynoc_hiredis_client *client, const char *key, struct token *token, dc_type_t *dc_type, uint32_t *rc_idx) {
+select_connection(struct dynoc_hiredis_client *client, const char *key,
+                  struct token *token, dc_type_t *dc_type, uint32_t *rc_idx) {
 	uint32_t index, hash;
 	struct datacenter *dc;
 	struct rack *rack;
 
 	parse_token(key, strlen(key), token);
-	hash = hash_murmur(key, strlen(key));
+	hash = client->hash_func(key, strlen(key));
 	size_token(token, 1);
 	set_int_token(token, hash);
 
@@ -56,13 +92,21 @@ select_connection(struct dynoc_hiredis_client *client, const char *key, struct t
 			return NULL;
 		}
 	}
+
+	if (!dc) {
+		return NULL;
+	}
 	rack = &dc->rack[(*rc_idx)++];
 	index = select_continuum(rack->continuum, rack->ncontinuum, token);
 	return &rack->redis_conn_pool[index];
 }
 
 int
-set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
+dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
+	if (!key || !value) {
+		return -1;
+	}
+
 	struct token token;
 	struct redis_connection *redis_conn;
 	redisReply *reply;
@@ -94,8 +138,88 @@ set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
 	return -1;
 }
 
+int
+dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *value, int seconds) {
+	if (!key || !value) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	init_token(&token);
+
+	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->valid) {
+			reply = redisCommand(redis_conn->ctx, "SETEX %s %d %s", key, seconds, value);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+				log_debug("redis is downed");
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+			log_debug("dynomite is downed");
+		}
+	}
+
+	return -1;
+}
+
+int
+dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *value, int milliseconds) {
+	if (!key || !value) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	init_token(&token);
+
+	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->valid) {
+			reply = redisCommand(redis_conn->ctx, "PSETEX %s %d %s", key, milliseconds, value);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
+}
+
 redisReply *
-get(struct dynoc_hiredis_client *client, const char *key) {
+dynoc_get(struct dynoc_hiredis_client *client, const char *key) {
+	if (!key) {
+		return NULL;
+	}
+
 	struct token token;
 	struct redis_connection *redis_conn;
 	redisReply *reply = NULL;
@@ -128,7 +252,49 @@ get(struct dynoc_hiredis_client *client, const char *key) {
 }
 
 int
-hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value) {
+dynoc_del(struct dynoc_hiredis_client *client, const char *key) {
+	if (!key) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply = NULL;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	init_token(&token);
+
+	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+
+		if (redis_conn->valid) {
+			reply = redisCommand(redis_conn->ctx, "DEL %s", key);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
+}
+
+int
+dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value) {
+	if (!key || !field || !value) {
+		return -1;
+	}
+
 	struct token token;
 	struct redis_connection *redis_conn;
 	redisReply *reply;
@@ -162,7 +328,11 @@ hset(struct dynoc_hiredis_client *client, const char *key, const char *field, co
 }
 
 redisReply *
-hget(struct dynoc_hiredis_client *client, const char *key, const char *field) {
+dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *field) {
+	if (!key || !field) {
+		return NULL;
+	}
+
 	struct token token;
 	struct redis_connection *redis_conn;
 	redisReply *reply;
