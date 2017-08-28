@@ -8,11 +8,13 @@ Dynoc is a minimalistic C client library for the [dynomite](https://github.com/N
 - Health check.
 
 # Build
-`git clone https://github.com/lampmanyao/dynoc.git`
-`cd dynoc/hiredis`
-`make`
-`cd src`
-`make` or `make debug`
+```
+git clone https://github.com/lampmanyao/dynoc.git
+cd dynoc/hiredis
+make
+cd src
+make or make debug
+```
 
 # Supported Redis Commands
 - SET
