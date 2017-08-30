@@ -1,6 +1,6 @@
 /*
  * Dynoc is a minimalistic C client library for the dynomite.
- * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
  */
 
 /*
@@ -36,9 +36,9 @@ struct token {
 	uint32_t mag[4];
 };
 
-void init_token(struct token *token);
-void parse_token(const char *str, size_t len, struct token *token);
-int32_t cmp_token(struct token *t1, struct token *t2);
-void set_int_token(struct token *token, uint32_t val);
-void size_token(struct token *token, uint32_t token_len);
+void token_init(struct token *token);
+void token_parse(const char *str, size_t len, struct token *token);
+int32_t token_cmp(struct token *t1, struct token *t2);
+void token_set_int(struct token *token, uint32_t val);
+void token_size(struct token *token, uint32_t token_len);
 

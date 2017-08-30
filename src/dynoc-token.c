@@ -1,6 +1,6 @@
 /*
  * Dynoc is a minimalistic C client library for the dynomite.
- * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
  */
 
 /*
@@ -70,14 +70,14 @@ add_next_word(uint32_t *buf, uint32_t len, uint32_t next_int) {
 }
 
 void
-init_token(struct token *token) {
+token_init(struct token *token) {
 	token->signum = 0;
 	token->length = 0;
 	memset(token->mag, 0, sizeof(token->mag));
 }
 
 void
-parse_token(const char *str, size_t len, struct token *token) {
+token_parse(const char *str, size_t len, struct token *token) {
 	char sign = '-';
 	uint8_t *p = (uint8_t *)str;
 	uint8_t *q = p + len;
@@ -110,7 +110,7 @@ parse_token(const char *str, size_t len, struct token *token) {
 }
 
 int32_t
-cmp_token(struct token *t1, struct token *t2) {
+token_cmp(struct token *t1, struct token *t2) {
 	int i;
 	if (t1->signum == t2->signum) {
 		if (t1->signum == 0) {
@@ -133,12 +133,12 @@ cmp_token(struct token *t1, struct token *t2) {
 }
 
 void
-size_token(struct token *token, uint32_t token_len) {
+token_size(struct token *token, uint32_t token_len) {
 	token->length = token_len;
 }
 
 void
-set_int_token(struct token *token, uint32_t val) {
+token_set_int(struct token *token, uint32_t val) {
 	token->mag[0] = val;
 	token->length = 1;
 	token->signum = val > 0 ? 1 : 0;

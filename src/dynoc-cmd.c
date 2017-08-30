@@ -1,6 +1,6 @@
 /*
  * Dynoc is a minimalistic C client library for the dynomite.
- * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
  */
 
 /*
@@ -25,8 +25,8 @@
  * limitations under the License.
  */
 
-#include "dynoc-cmd.h"
 #include "dynoc-debug.h"
+#include "dynoc-core.h"
 
 #include <stdlib.h>
 #include <assert.h>
@@ -34,7 +34,7 @@
 
 static void
 reset_redis_connection(struct redis_connection *redis_conn) {
-	redis_conn->valid = INVALID;
+	redis_conn->status = INVALID;
 	redisFree(redis_conn->ctx);
 	redis_conn->ctx = NULL;
 }
@@ -46,13 +46,13 @@ select_continuum(struct continuum *continuum, uint32_t ncontinuum, struct token 
 	left = continuum;
 	right = continuum + ncontinuum - 1;
 
-	if (cmp_token(right->token, token) < 0 || cmp_token(left->token, token) >= 0) {
+	if (token_cmp(right->token, token) < 0 || token_cmp(left->token, token) >= 0) {
 		return left->index;
 	}
 
 	while (left < right) {
 		middle = left + (right - left) / 2;
-		int32_t cmp = cmp_token(middle->token, token);
+		int32_t cmp = token_cmp(middle->token, token);
 		if (cmp == 0) {
 			return middle->index;
 		} else if (cmp < 0) {
@@ -66,18 +66,18 @@ select_continuum(struct continuum *continuum, uint32_t ncontinuum, struct token 
 }
 
 static struct redis_connection*
-select_connection(struct dynoc_hiredis_client *client, const char *key,
+select_connection(struct dynoc *dynoc, const char *key,
                   struct token *token, dc_type_t *dc_type, uint32_t *rc_idx) {
 	uint32_t index, hash;
 	struct datacenter *dc;
 	struct rack *rack;
 
-	parse_token(key, strlen(key), token);
-	hash = client->hash_func(key, strlen(key));
-	size_token(token, 1);
-	set_int_token(token, hash);
+	token_parse(key, strlen(key), token);
+	hash = dynoc->hash_func(key, strlen(key));
+	token_size(token, 1);
+	token_set_int(token, hash);
 
-	dc = dc_type ? client->local_dc : client->remote_dc;
+	dc = dc_type ? dynoc->local_dc : dynoc->remote_dc;
 
 	if (!dc) {
 		return NULL;
@@ -87,7 +87,7 @@ select_connection(struct dynoc_hiredis_client *client, const char *key,
 		if (*dc_type == LOCAL_DC) {
 			*dc_type = REMOTE_DC;
 			*rc_idx = 0;
-			dc = client->remote_dc;
+			dc = dynoc->remote_dc;
 		} else {
 			return NULL;
 		}
@@ -96,13 +96,14 @@ select_connection(struct dynoc_hiredis_client *client, const char *key,
 	if (!dc) {
 		return NULL;
 	}
+
 	rack = &dc->rack[(*rc_idx)++];
 	index = select_continuum(rack->continuum, rack->ncontinuum, token);
 	return &rack->redis_conn_pool[index];
 }
 
 int
-dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *value) {
+dynoc_set(struct dynoc *dynoc, const char *key, const char *value) {
 	if (!key || !value) {
 		return -1;
 	}
@@ -113,11 +114,11 @@ dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *valu
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "SET %s %s", key, value);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				freeReplyObject(reply);
@@ -139,7 +140,7 @@ dynoc_set(struct dynoc_hiredis_client *client, const char *key, const char *valu
 }
 
 int
-dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *value, int seconds) {
+dynoc_setex(struct dynoc *dynoc, const char *key, const char *value, int seconds) {
 	if (!key || !value) {
 		return -1;
 	}
@@ -150,11 +151,11 @@ dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *va
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "SETEX %s %d %s", key, seconds, value);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				freeReplyObject(reply);
@@ -178,7 +179,7 @@ dynoc_setex(struct dynoc_hiredis_client *client, const char *key, const char *va
 }
 
 int
-dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *value, int milliseconds) {
+dynoc_psetex(struct dynoc *dynoc, const char *key, const char *value, int milliseconds) {
 	if (!key || !value) {
 		return -1;
 	}
@@ -189,11 +190,11 @@ dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *v
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "PSETEX %s %d %s", key, milliseconds, value);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				freeReplyObject(reply);
@@ -215,7 +216,7 @@ dynoc_psetex(struct dynoc_hiredis_client *client, const char *key, const char *v
 }
 
 redisReply *
-dynoc_get(struct dynoc_hiredis_client *client, const char *key) {
+dynoc_get(struct dynoc *dynoc, const char *key) {
 	if (!key) {
 		return NULL;
 	}
@@ -226,12 +227,12 @@ dynoc_get(struct dynoc_hiredis_client *client, const char *key) {
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
 
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "GET %s", key);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				pthread_mutex_unlock(&redis_conn->lock);
@@ -252,7 +253,7 @@ dynoc_get(struct dynoc_hiredis_client *client, const char *key) {
 }
 
 int
-dynoc_del(struct dynoc_hiredis_client *client, const char *key) {
+dynoc_del(struct dynoc *dynoc, const char *key) {
 	if (!key) {
 		return -1;
 	}
@@ -263,12 +264,12 @@ dynoc_del(struct dynoc_hiredis_client *client, const char *key) {
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
 
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "DEL %s", key);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				freeReplyObject(reply);
@@ -290,7 +291,7 @@ dynoc_del(struct dynoc_hiredis_client *client, const char *key) {
 }
 
 int
-dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *field, const char *value) {
+dynoc_hset(struct dynoc *dynoc, const char *key, const char *field, const char *value) {
 	if (!key || !field || !value) {
 		return -1;
 	}
@@ -301,12 +302,12 @@ dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *fie
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
 
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "HSET %s %s %s", key, field, value);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				freeReplyObject(reply);
@@ -328,7 +329,7 @@ dynoc_hset(struct dynoc_hiredis_client *client, const char *key, const char *fie
 }
 
 redisReply *
-dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *field) {
+dynoc_hget(struct dynoc *dynoc, const char *key, const char *field) {
 	if (!key || !field) {
 		return NULL;
 	}
@@ -339,12 +340,12 @@ dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *fie
 	dc_type_t dc_type = LOCAL_DC;
 	uint32_t rc_idx = 0;
 
-	init_token(&token);
+	token_init(&token);
 
-	while ((redis_conn = select_connection(client, key, &token, &dc_type, &rc_idx))) {
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
 		pthread_mutex_lock(&redis_conn->lock);
 
-		if (redis_conn->valid) {
+		if (redis_conn->status) {
 			reply = redisCommand(redis_conn->ctx, "HGET %s %s", key, field);
 			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
 				pthread_mutex_unlock(&redis_conn->lock);
@@ -362,5 +363,79 @@ dynoc_hget(struct dynoc_hiredis_client *client, const char *key, const char *fie
 	}
 
 	return NULL;
+}
+
+int
+dynoc_incr(struct dynoc *dynoc, const char *key) {
+	if (!key) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	token_init(&token);
+
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->status) {
+			reply = redisCommand(redis_conn->ctx, "INCR %s", key);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
+}
+
+int
+dynoc_incrby(struct dynoc *dynoc, const char *key, int val) {
+	if (!key) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	token_init(&token);
+
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->status) {
+			reply = redisCommand(redis_conn->ctx, "INCRBY %s %d", key, val);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
 }
 

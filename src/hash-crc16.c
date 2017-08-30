@@ -1,6 +1,6 @@
 /*
  * Dynoc is a minimalistic C client library for the dynomite.
- * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
  */
 
 /*

@@ -1,6 +1,6 @@
 /*
  * Dynoc is a minimalistic C client library for the dynomite.
- * Copyright (C) 2017 Lampman Yao (lampmanyao@gmail.com)
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
  */
 
 /*
@@ -59,7 +59,7 @@ struct continuum {
 };
 
 struct redis_connection {
-	uint32_t valid;
+	uint32_t status;
 	pthread_mutex_t lock;
 	redisContext *ctx;
 };
@@ -79,7 +79,7 @@ struct datacenter {
 	dc_type_t dc_type;
 };
 
-struct dynoc_hiredis_client {
+struct dynoc {
 	pthread_t tid;
 	hash_type_t hash_type;
 	hash_func_t hash_func;
@@ -91,12 +91,31 @@ struct dynoc_hiredis_client {
 extern "C"{
 #endif 
 
-int dynoc_client_init(struct dynoc_hiredis_client *client, const char *hash);
-int init_datacenter(struct dynoc_hiredis_client *client, uint32_t rack_count, const char *name, dc_type_t dc_type);
-int init_rack(struct dynoc_hiredis_client *client, uint32_t node_count, const char *name, dc_type_t dc_type);
-int dynoc_client_add_node(struct dynoc_hiredis_client *client, const char *ip, int port, const char *pass, const char *token, const char *rc_name, dc_type_t dc_type);
-int dynoc_client_start(struct dynoc_hiredis_client *client);
-void dynoc_client_destroy(struct dynoc_hiredis_client *client);
+int dynoc_init(struct dynoc *dynoc);
+
+/*
+ * Set hash algorithm for key.
+ * If caller does not call this API, dynoc will use default algorithm (murmur)
+ * as key hash algorithm.
+ */
+int dynoc_hash_type_init(struct dynoc *dynoc, const char *hash_name);
+int dynoc_datacenter_init(struct dynoc *dynoc, uint32_t rack_count, const char *name, dc_type_t dc_type);
+int dynoc_rack_init(struct dynoc *dynoc, uint32_t node_count, const char *name, dc_type_t dc_type);
+int dynoc_add_node(struct dynoc *dynoc, const char *ip, int port, const char *pass, const char *token, const char *rc_name, dc_type_t dc_type);
+int dynoc_start(struct dynoc *dynoc);
+void dynoc_destroy(struct dynoc *dynoc);
+
+
+int dynoc_set(struct dynoc *dynoc, const char *key, const char *value);
+int dynoc_setex(struct dynoc *dynoc, const char *key, const char *value, int seconds);
+int dynoc_psetex(struct dynoc *dynoc, const char *key, const char *value, int milliseconds);
+int dynoc_del(struct dynoc *dynoc, const char *key);
+int dynoc_hset(struct dynoc *dynoc, const char *key, const char *field, const char *value);
+int dynoc_incr(struct dynoc *dynoc, const char *key);
+int dynoc_incrby(struct dynoc *dynoc, const char *key, int val);
+
+redisReply *dynoc_get(struct dynoc *dynoc, const char *key);
+redisReply *dynoc_hget(struct dynoc *dynoc, const char *key, const char *field);
 
 #ifdef __cplusplus
 }

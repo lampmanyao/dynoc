@@ -3,14 +3,11 @@ cflags = -Wall -O2 -I../hiredis
 srcs = $(wildcard *.c)
 objs = $(srcs:.c=.o)
 
-$(objdir):
-	@mkdir -p $@
-
 target = libdynoc.a
 
 all: $(target)
 
-debug: cflags += -DDEBUG -g
+debug: cflags = -Wall -O0 -DDEBUG -g -I../hiredis
 debug: $(target)
 
 $(target): $(objs)
