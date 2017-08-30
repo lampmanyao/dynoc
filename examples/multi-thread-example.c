@@ -1,15 +1,43 @@
+/*
+ * Dynoc is a minimalistic C client library for the dynomite.
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
+ */
+
+/*
+ * Dynomite - A thin, distributed replication layer for multi non-distributed storages.
+ * Copyright (C) 2014 Netflix, Inc.
+ */
+
+/*
+ * twemproxy - A fast and lightweight proxy for memcached protocol.
+ * Copyright (C) 2011 Twitter, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+
 #include "dynoc-core.h"
-#include "dynoc-cmd.h"
 
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/syscall.h>
 
-struct dynoc_hiredis_client client;
+struct dynoc dynoc;
 int nrequest;
 
-inline unsigned long
+unsigned long
 gettimeus() {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
@@ -18,7 +46,7 @@ gettimeus() {
 
 void *
 thread(void *arg) {
-	struct dynoc_hiredis_client *local_client = &client;
+	struct dynoc *local_dynoc = &dynoc;
 	int i;
 
 #ifdef __linux__
@@ -33,7 +61,7 @@ thread(void *arg) {
 		char value[32];
 		snprintf(key, 32, "thread%d%d", tid, i);
 		snprintf(value, 32, "vlaue%d", i);
-		int ret = dynoc_set(local_client, key, value);
+		int ret = dynoc_set(local_dynoc, key, value);
 		if (ret < 0) {
 			printf("thread1: SET %s: ret=%d\n", key, ret);
 		}
@@ -53,26 +81,26 @@ int main(int argc, char **argv)
 	int nthread = atoi(argv[1]);
 	nrequest = atoi(argv[2]);
 
-	dynoc_client_init(&client, "murmur");
-	init_datacenter(&client, 1, "local_dc", LOCAL_DC);
-	init_datacenter(&client, 2, "remote_dc", REMOTE_DC);
+	dynoc_init(&dynoc);
+	dynoc_datacenter_init(&dynoc, 1, "local_dc", LOCAL_DC);
+	dynoc_datacenter_init(&dynoc, 2, "remote_dc", REMOTE_DC);
 
-	init_rack(&client, 3, "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "113.107.149.188", 6501, "1024xxx!yy", "1431655765", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "113.107.149.188", 6502, "1024xxx!yy", "2863311530", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "113.107.149.188", 6503, "1024xxx!yy", "4294967295", "rack1", LOCAL_DC);
+	dynoc_rack_init(&dynoc, 3, "rack1", LOCAL_DC);
+	dynoc_add_node(&dynoc, "113.107.149.188", 6501, "1024xxx!yy", "1431655765", "rack1", LOCAL_DC);
+	dynoc_add_node(&dynoc, "113.107.149.188", 6502, "1024xxx!yy", "2863311530", "rack1", LOCAL_DC);
+	dynoc_add_node(&dynoc, "113.107.149.188", 6503, "1024xxx!yy", "4294967295", "rack1", LOCAL_DC);
 
-	init_rack(&client, 3, "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "61.145.54.225", 6501, "1024xxx!yy", "1431655765", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "61.145.54.225", 6502, "1024xxx!yy", "2863311530", "rack1", REMOTE_DC);
-	dynoc_client_add_node(&client, "61.145.54.225", 6503, "1024xxx!yy", "4294967295", "rack1", REMOTE_DC);
+	dynoc_rack_init(&dynoc, 3, "rack1", REMOTE_DC);
+	dynoc_add_node(&dynoc, "61.145.54.225", 6501, "1024xxx!yy", "1431655765", "rack1", REMOTE_DC);
+	dynoc_add_node(&dynoc, "61.145.54.225", 6502, "1024xxx!yy", "2863311530", "rack1", REMOTE_DC);
+	dynoc_add_node(&dynoc, "61.145.54.225", 6503, "1024xxx!yy", "4294967295", "rack1", REMOTE_DC);
                                                               
-	init_rack(&client, 3, "rack2", REMOTE_DC);            
-	dynoc_client_add_node(&client, "58.215.169.12", 6501, "1024xxx!yy", "1431655765", "rack2", REMOTE_DC);
-	dynoc_client_add_node(&client, "58.215.169.12", 6502, "1024xxx!yy", "2863311530", "rack2", REMOTE_DC);
-	dynoc_client_add_node(&client, "58.215.169.12", 6503, "1024xxx!yy", "4294967295", "rack2", REMOTE_DC);
+	dynoc_rack_init(&dynoc, 3, "rack2", REMOTE_DC);            
+	dynoc_add_node(&dynoc, "58.215.169.12", 6501, "1024xxx!yy", "1431655765", "rack2", REMOTE_DC);
+	dynoc_add_node(&dynoc, "58.215.169.12", 6502, "1024xxx!yy", "2863311530", "rack2", REMOTE_DC);
+	dynoc_add_node(&dynoc, "58.215.169.12", 6503, "1024xxx!yy", "4294967295", "rack2", REMOTE_DC);
 
-	dynoc_client_start(&client);
+	dynoc_start(&dynoc);
 
 	pthread_t* tids = malloc(nthread * sizeof(pthread_t));
 	int i;
@@ -85,7 +113,7 @@ int main(int argc, char **argv)
 	}
 
 	free(tids);
-	dynoc_client_destroy(&client);
+	dynoc_destroy(&dynoc);
 
 	return 0;
 }

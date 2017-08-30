@@ -1,22 +1,25 @@
-CC = gcc
-CFLAGS = -Wall -O2 -g
+cc = gcc
+cflags = -Wall -O2
 TARGET = example multi-thread-example
-INC = -I../src -I../hiredis
-LIB = ../src/libdynoc.a ../hiredis/libhiredis.a -lpthread 
+inc = -I../src -I../hiredis
+lib = ../src/libdynoc.a ../hiredis/libhiredis.a -lpthread 
 
 srcs = $(wildcard *.c)
 objs = $(srcs:.c=.o)
 
 all: $(TARGET)
 
+debug: cflags = -Wall -O0 -DDEBUG -g
+debug: $(TARGET)
+
 example: example.o
-	$(CC) $(CFLAGS) $(INC) -o $@ $< $(LIB)
+	$(cc) $(cflags) $(inc) -o $@ $< $(lib)
 
 multi-thread-example: multi-thread-example.o
-	$(CC) $(CFLAGS) $(INC) -o $@ $< $(LIB)
+	$(cc) $(cflags) $(inc) -o $@ $< $(lib)
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(INC) -c $< -o $@
+	$(cc) $(cflags) $(inc) -c $< -o $@
 
 .PHONY: clean
 clean:

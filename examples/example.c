@@ -1,48 +1,65 @@
+/*
+ * Dynoc is a minimalistic C client library for the dynomite.
+ * Copyright (C) 2016-2017 huya.com, Lampman Yao
+ */
+
+/*
+ * Dynomite - A thin, distributed replication layer for multi non-distributed storages.
+ * Copyright (C) 2014 Netflix, Inc.
+ */
+
+/*
+ * twemproxy - A fast and lightweight proxy for memcached protocol.
+ * Copyright (C) 2011 Twitter, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+
 #include "dynoc-core.h"
-#include "dynoc-cmd.h"
 
 #include <unistd.h>
 
 int main(int argc, char **argv)
 {
 	int i;
-	struct dynoc_hiredis_client client;
-	dynoc_client_init(&client, "murmur");
+	struct dynoc dynoc;
+	dynoc_init(&dynoc);
 
-	init_datacenter(&client, 1, "wuxi-datacenter", LOCAL_DC);
+	dynoc_hash_type_init(&dynoc, "murmur");
 
-	init_rack(&client, 2, "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8301, "hello", "1431655765", "rack1", LOCAL_DC);
-	dynoc_client_add_node(&client, "10.211.55.8", 8302, "hello", "3434343432", "rack1", LOCAL_DC);
+	dynoc_datacenter_init(&dynoc, 1, "wuxi-datacenter", LOCAL_DC);
 
-	dynoc_client_start(&client);
+	dynoc_rack_init(&dynoc, 1, "rack1", LOCAL_DC);
+	dynoc_add_node(&dynoc, "10.211.55.19", 8102, "hello", "437425602", "rack1", LOCAL_DC);
 
-	int n = 10;
-	while (n--) {
-		printf("%d\n", n);
-		sleep(1);
-	}
+	dynoc_start(&dynoc);
 
 	for (i = 0; i < 10; i++) {
 		char key[32];
 		char value[32];
 		snprintf(key, 32, "keykey%d", i);
 		snprintf(value, 32, "vlaue%d", i);
-		int ret = dynoc_set(&client, key, value);
+		int ret = dynoc_set(&dynoc, key, value);
 		printf("SET %s: ret=%d\n", key, ret);
-	}
-
-	n = 10;
-	while (n--) {
-		printf("%d\n", n);
-		sleep(1);
 	}
 
 	for (i = 0; i < 10; i++) {
 		char key[32];
 		snprintf(key, 32, "keykey%d", i);
-		redisReply *r = dynoc_get(&client, key);
-		if (r) {
+		redisReply *r = dynoc_get(&dynoc, key);
+		if (r && r->str) {
 			printf("GET %s: %s\n\n", key, r->str);
 			freeReplyObject(r);
 		} else {
@@ -62,8 +79,8 @@ int main(int argc, char **argv)
 		snprintf(field2, 32, "field2_%d", i);
 		snprintf(val2, 32, "val2_%d", i);
 
-		int ret = dynoc_hset(&client, key, field1, val1);
-		int ret1 = dynoc_hset(&client, key, field2, val2);
+		int ret = dynoc_hset(&dynoc, key, field1, val1);
+		int ret1 = dynoc_hset(&dynoc, key, field2, val2);
 		printf("HSET %s: ret=%d, ret1=%d\n", key, ret, ret1);
 	}
 
@@ -75,25 +92,27 @@ int main(int argc, char **argv)
 		snprintf(field1, 32, "field1_%d", i);
 		snprintf(field2, 32, "field2_%d", i);
 
-		redisReply *r1 = dynoc_hget(&client, key, field1);
-		redisReply *r2 = dynoc_hget(&client, key, field2);
+		redisReply *r1 = dynoc_hget(&dynoc, key, field1);
+		redisReply *r2 = dynoc_hget(&dynoc, key, field2);
 
-		if (r1) {
+		if (r1 && r1->str) {
 			printf("HGET %s: %s\n", field1, r1->str);
 			freeReplyObject(r1);
 		}
-		if (r2) {
+		if (r2 && r2->str) {
 			printf("HGET %s: %s\n", field2, r2->str);
 			freeReplyObject(r2);
 		}
 	}
 
+	dynoc_set(&dynoc, "mykey", "10");
+	dynoc_incr(&dynoc, "mykey");
+
 	while (1) {
-		
 		sleep(6);
 	}
 
-	dynoc_client_destroy(&client);
+	dynoc_destroy(&dynoc);
 
 	return 0;
 }
