@@ -439,3 +439,77 @@ dynoc_incrby(struct dynoc *dynoc, const char *key, int val) {
 	return -1;
 }
 
+int
+dynoc_decr(struct dynoc *dynoc, const char *key) {
+	if (!key) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	token_init(&token);
+
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->status) {
+			reply = redisCommand(redis_conn->ctx, "DECR %s", key);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
+}
+
+int
+dynoc_decrby(struct dynoc *dynoc, const char *key, int val) {
+	if (!key) {
+		return -1;
+	}
+
+	struct token token;
+	struct redis_connection *redis_conn;
+	redisReply *reply;
+	dc_type_t dc_type = LOCAL_DC;
+	uint32_t rc_idx = 0;
+
+	token_init(&token);
+
+	while ((redis_conn = select_connection(dynoc, key, &token, &dc_type, &rc_idx))) {
+		pthread_mutex_lock(&redis_conn->lock);
+		if (redis_conn->status) {
+			reply = redisCommand(redis_conn->ctx, "DECRBY %s %d", key, val);
+			if (reply && reply->type != REDIS_REPLY_ERROR && redis_conn->ctx->err == 0) {
+				freeReplyObject(reply);
+				pthread_mutex_unlock(&redis_conn->lock);
+				return 0;
+			} else {
+				if (reply) {
+					freeReplyObject(reply);
+				}
+				reset_redis_connection(redis_conn);
+				pthread_mutex_unlock(&redis_conn->lock);
+			}
+		} else {
+			pthread_mutex_unlock(&redis_conn->lock);
+		}
+	}
+
+	return -1;
+}
+

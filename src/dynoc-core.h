@@ -88,6 +88,7 @@ struct dynoc {
 };
 
 #ifdef __cplusplus
+namespace dynoc {
 extern "C"{
 #endif 
 
@@ -105,6 +106,9 @@ int dynoc_add_node(struct dynoc *dynoc, const char *ip, int port, const char *pa
 int dynoc_start(struct dynoc *dynoc);
 void dynoc_destroy(struct dynoc *dynoc);
 
+/*
+ * Redis Commands
+ */
 
 int dynoc_set(struct dynoc *dynoc, const char *key, const char *value);
 int dynoc_setex(struct dynoc *dynoc, const char *key, const char *value, int seconds);
@@ -113,11 +117,19 @@ int dynoc_del(struct dynoc *dynoc, const char *key);
 int dynoc_hset(struct dynoc *dynoc, const char *key, const char *field, const char *value);
 int dynoc_incr(struct dynoc *dynoc, const char *key);
 int dynoc_incrby(struct dynoc *dynoc, const char *key, int val);
+int dynoc_decr(struct dynoc *dynoc, const char *key);
+int dynoc_decryby(struct dynoc *dynoc, const char *key, int val);
 
+/*
+ * The following functions return a redisReply pointer, the caller must check 
+ * `redisReply->str` whether is NULL to get the value, and call freeReplyObject()
+ * to free the memory. If there is an error, NULL is returned.
+ */
 redisReply *dynoc_get(struct dynoc *dynoc, const char *key);
 redisReply *dynoc_hget(struct dynoc *dynoc, const char *key, const char *field);
 
 #ifdef __cplusplus
 }
+};
 #endif
 
