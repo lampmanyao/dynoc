@@ -22,7 +22,8 @@ make or make debug
 - DEL
 - HSET
 - HGET
+- INCR
+- INCRBY
 
 # TODOs
-- The remain features of Dyno (Official Client for dynomite)
-
+- The remaining features of [Dyno](https://github.com/Netflix/dyno) (Official Client for dynomite)
