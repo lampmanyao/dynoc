@@ -3,8 +3,8 @@
 Dynoc is a minimalistic C client library for the [dynomite](https://github.com/Netflix/dynomite).
 
 # Features
-- Connect pool，token aware.
-- Read/Write retry when read/write from/to the local rack.
+- Connection pool.
+- Topology aware load balancing (Token Aware). 
 - Health check.
 
 # Build
@@ -24,6 +24,8 @@ make or make debug
 - HGET
 - INCR
 - INCRBY
+- DECR
+- DECRBY
 
 # TODOs
 - The remaining features of [Dyno](https://github.com/Netflix/dyno) (Official Client for dynomite)
